@@ -1,63 +1,53 @@
 ﻿@todoapi_HostAddress = https://localhost:7059
-POST {{TodoApi_HostAddress}}/todoitems
-Content-Type: application/json
 
-{
-  "name":"walk dog",
-  "isComplete":false
-}
-
-###
-
-POST {{TodoApi_HostAddress}}/todoitems
-Content-Type: application/json
-
-{
-  "name":"walk dog",
-  "isComplete":false
-}
-
-###
-@id=1
-PUT {{todoapi_HostAddress}}/todoitems/{{id}}
-Content-Type: application/json
-
-{
-  "name":"walk dog",
-  "isComplete":true
-}
-
-###
-
-
-POST {{todoapi_HostAddress}}/account/register
-Content-Type: application/json
-{
-    "username": "zxczx",
-    "password": "dfsfds"
-}
-###
-@id=1
-DELETE {{todoapi_HostAddress}}/todoitems/{{id}}
-
-###
-
-GET {{todoapi_HostAddress}}/todoitems
+GET {{todoapi_HostAddress}}/listtasks
 
 ###
 
 GET {{todoapi_HostAddress}}/users
-###
-
-DELETE {{todoapi_HostAddress}}/users/{{id}}
 
 ###
-POST {{todoapi_HostAddress}}/account/todoitems
-Content-type: application/json
+
+POST {{todoapi_HostAddress}}/account/listtasks
+Content-Type: application/json
+
 {
-  "name":"walk dog",
-  "isComplete":false,
-  "username":"zxczx",
+  "username": "zxczx",
+  "password": "dfsfds"
+}
+
+###
+
+POST {{todoapi_HostAddress}}/user/register
+Content-Type: application/json
+
+{
+  "username": "zxczx",
+  "password": "dfsfds"
+}
+
+###
+
+POST {{todoapi_HostAddress}}/todoitems
+Content-Type: application/json
+
+{
+  "name": "My First Task"
+}
+
+###
+
+POST {{todoapi_HostAddress}}/account/addtask
+Content-Type: application/json
+
+{
+  "username": "zxczx",
   "password": "dfsfds"
 }
 ###
+
+PATCH {{todoapi_HostAddress}}/tick/{{id}}
+
+###
+
+@id=8

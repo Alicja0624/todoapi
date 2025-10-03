@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using todoapi;
 
 class TodoDb : DbContext
 {
