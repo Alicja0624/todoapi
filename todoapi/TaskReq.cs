@@ -11,5 +11,14 @@
         public string Password { get; set; }
         public int? ParentTaskId { get; set; }
         public DateTime? DueDate { get; set; }
+
+        public static implicit operator AccountReq(TaskReq taskReq)
+        {
+            return new AccountReq
+            {
+                Username = taskReq.Username,
+                Password = taskReq.Password
+            };
+        }
     }
 }

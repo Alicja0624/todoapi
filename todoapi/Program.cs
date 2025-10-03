@@ -1,9 +1,33 @@
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.Data;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
 using todoapi;
+
+// bool informuje, czy dzia³anie ma byæ wykonane na publicznych zadaniach (brak nazwy u¿ytkownika)
+static (bool, User?, IResult?) Login(AccountReq request, TodoDb db, IPasswordHasher<User> hasher)
+{
+    if (string.IsNullOrEmpty(request.Username))
+    {
+        return (true, null, null);
+    }
+
+    if (string.IsNullOrEmpty(request.Password))
+    {
+        request.Password = "";
+    }
+    // log in
+    var user = db.Users.SingleOrDefault(u => u.Username == request.Username);
+    if (user == null)
+    {
+        return (false, null, Results.BadRequest("Nie istnieje konto o takim loginie."));
+    }
+    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
+    if (verificationResult == PasswordVerificationResult.Failed)
+    {
+        return (false, null, Results.BadRequest("Nieprawid³owe has³o."));
+    }
+
+    return (false, user, null);
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,26 +43,16 @@ var db = scope.ServiceProvider.GetRequiredService<TodoDb>();
 
 await db.Database.EnsureCreatedAsync();
 
-app.MapGet("/listtasks", async (TodoDb db) =>
-    await db.Todos.Where(t => t.User == null).ToListAsync());
-
-app.MapPost("/account/listtasks", async (RegisterReq request1, TodoDb db, IPasswordHasher<User> hasher) =>
+app.MapPost("/listtasks", async (AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
-    if (string.IsNullOrEmpty(request1.Password))
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
+
+    if (isPublic)
     {
-        request1.Password = "";
+        return Results.Ok(await db.Todos.Where(t => t.UserId == null).ToListAsync());
     }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == request1.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, request1.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
+
+    if (user is null) return errorResult;
 
     var User = await db.Users.Include(u => u.Todos).SingleAsync(u => u.Id == user.Id);
 
@@ -48,101 +62,65 @@ app.MapPost("/account/listtasks", async (RegisterReq request1, TodoDb db, IPassw
 // app.MapGet("/users", async (TodoDb db) =>
 //     await db.Users.ToListAsync());
 
-app.MapGet("/taskinfo/{id}", async (int id, TodoDb db) =>
-    // only public todos
-    await db.Todos.FindAsync(id)
-        is Todo todo
-        && todo.User == null
-            ? Results.Ok(todo)
-            : Results.NotFound());
+app.MapPost("/taskinfo/{id}", async (int id, AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
+{
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
 
-app.MapPost("/account/taskinfo/{id}", async (int id, RegisterReq request, TodoDb db, IPasswordHasher<User> hasher) =>
-{   if (string.IsNullOrEmpty(request.Password))
+    if (isPublic)
     {
-        request.Password = "";
+        var todo1 = await db.Todos.FindAsync(id);
+        if (todo1 is null) return Results.NotFound();
+        if (todo1.UserId != null) return Results.Unauthorized();
+        return Results.Ok(todo1);
     }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == request.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
+
+    if (user is null) return errorResult;
+
     var todo = await db.Todos.FindAsync(id);
     if (todo is null) return Results.NotFound();
     if (todo.UserId != user.Id) return Results.Unauthorized();
     return Results.Ok(todo);
 });
 
-app.MapPost("/addtask", async (Todo todo, TodoDb db) =>
+app.MapPost("/addtask", async (TaskReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
-    // nazwa zadania nie mo¿e byæ pusta ani równa null
-    if (string.IsNullOrEmpty(todo.Name))
-    {
-        return Results.BadRequest("Zadanie musi mieæ nazwê.");
-    }
-    // opis zadania nie mo¿e byæ równy null ale mo¿e byæ pusty
-    todo.Description ??= "";
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
 
-    db.Todos.Add(todo);
-    await db.SaveChangesAsync();
+    if (isPublic)
+    {
+        var todo1 = new Todo
+        {
+            Name = request.Name,
+            Description = request.Description,
+            Priority = request.Priority,
+            IsComplete = request.IsComplete,
+            CreatedAt = DateTime.UtcNow,
+            DueDate = request.DueDate
+        };
+        // nazwa zadania nie mo¿e byæ pusta ani równa null
+        if (string.IsNullOrEmpty(todo1.Name))
+        {
+            return Results.BadRequest("Zadanie musi mieæ nazwê.");
+        }
+        // opis zadania nie mo¿e byæ równy null ale mo¿e byæ pusty
+        todo1.Description ??= "";
+        db.Todos.Add(todo1);
+        await db.SaveChangesAsync();
+        return Results.Created($"/taskinfo/{todo1.Id}", todo1);
+    }
 
-    return Results.Created($"/taskinfo/{todo.Id}", todo);
-});
-
-app.MapPost("/addchildtask/{parentId}", async (int parentId, Todo todo, TodoDb db) =>
-{
-    // nazwa zadania nie mo¿e byæ pusta ani równa null
-    if (string.IsNullOrEmpty(todo.Name))
-    {
-        return Results.BadRequest("Zadanie musi mieæ nazwê.");
-    }
-    // opis zadania nie mo¿e byæ równy null ale mo¿e byæ pusty
-    todo.Description ??= "";
-
-    var parentTask = await db.Todos.FindAsync(parentId);
-    if (parentTask == null)
-    {
-        return Results.BadRequest("Zadanie nadrzêdne nie istnieje.");
-    }
-    todo.ParentTaskId = parentId;
-    db.Todos.Add(todo);
-    await db.SaveChangesAsync();
-    return Results.Created($"/taskinfo/{todo.Id}", todo);
-});
-
-app.MapPost("/account/addtask", async (TaskReq taskReq, TodoDb db, IPasswordHasher<User> hasher) =>
-{
-    if (string.IsNullOrEmpty(taskReq.Password))
-    {
-        taskReq.Password = "";
-    }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == taskReq.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, taskReq.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
+    if (user is null) return errorResult;
 
     var todo = new Todo
     {
-        Name = taskReq.Name,
-        Description = taskReq.Description,
-        Priority = taskReq.Priority,
-        IsComplete = taskReq.IsComplete,
+        Name = request.Name,
+        Description = request.Description,
+        Priority = request.Priority,
+        IsComplete = request.IsComplete,
         User = user,
         UserId = user.Id,
         CreatedAt = DateTime.UtcNow,
-        DueDate = taskReq.DueDate
+        DueDate = request.DueDate
     };
 
     // nazwa zadania nie mo¿e byæ pusta ani równa null
@@ -155,26 +133,46 @@ app.MapPost("/account/addtask", async (TaskReq taskReq, TodoDb db, IPasswordHash
 
     db.Todos.Add(todo);
     await db.SaveChangesAsync();
-    return Results.Created($"/account/taskinfo/{todo.Id}", todo);
+    return Results.Created($"/taskinfo/{todo.Id}", todo);
 });
 
-app.MapPost("/account/addchildtask/{parentId}", async (int parentId, TaskReq taskReq, TodoDb db, IPasswordHasher<User> hasher) =>
+app.MapPost("/addchildtask/{parentId}", async (int parentId, TaskReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
-    if (string.IsNullOrEmpty(taskReq.Password))
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
+
+    if (isPublic)
     {
-        taskReq.Password = "";
+        var parentTask1 = await db.Todos.FindAsync(parentId);
+        if (parentTask1 == null)
+        {
+            return Results.BadRequest("Zadanie nadrzêdne nie istnieje.");
+        }
+        var todo1 = new Todo
+        {
+            Name = request.Name,
+            Description = request.Description,
+            Priority = request.Priority,
+            IsComplete = request.IsComplete,
+            ParentTaskId = parentId,
+            CreatedAt = DateTime.UtcNow,
+            DueDate = request.DueDate
+        };
+
+        // nazwa zadania nie mo¿e byæ pusta ani równa null
+        if (string.IsNullOrEmpty(todo1.Name))
+        {
+            return Results.BadRequest("Zadanie musi mieæ nazwê.");
+        }
+        // opis zadania nie mo¿e byæ równy null ale mo¿e byæ pusty
+        todo1.Description ??= "";
+
+        db.Todos.Add(todo1);
+        await db.SaveChangesAsync();
+        return Results.Created($"/taskinfo/{todo1.Id}", todo1);
     }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == taskReq.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, taskReq.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
+
+    if (user is null) return errorResult;
+
     var parentTask = await db.Todos.FindAsync(parentId);
     if (parentTask == null)
     {
@@ -182,15 +180,15 @@ app.MapPost("/account/addchildtask/{parentId}", async (int parentId, TaskReq tas
     }
     var todo = new Todo
     {
-        Name = taskReq.Name,
-        Description = taskReq.Description,
-        Priority = taskReq.Priority,
-        IsComplete = taskReq.IsComplete,
+        Name = request.Name,
+        Description = request.Description,
+        Priority = request.Priority,
+        IsComplete = request.IsComplete,
         User = user,
         UserId = user.Id,
         ParentTaskId = parentId,
         CreatedAt = DateTime.UtcNow,
-        DueDate = taskReq.DueDate
+        DueDate = request.DueDate
     };
 
     // nazwa zadania nie mo¿e byæ pusta ani równa null
@@ -203,52 +201,36 @@ app.MapPost("/account/addchildtask/{parentId}", async (int parentId, TaskReq tas
 
     db.Todos.Add(todo);
     await db.SaveChangesAsync();
-    return Results.Created($"/account/taskinfo/{todo.Id}", todo);
+    return Results.Created($"/taskinfo/{todo.Id}", todo);
 });
 
-app.MapPatch("/edittask/{id}", async (int id, Todo inputTodo, TodoDb db) =>
+app.MapPatch("/edittask/{id}", async (int id, TaskReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
-    var todo = await db.Todos.FindAsync(id);
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
 
-    if (todo is null) return Results.NotFound();
-
-    todo.Name = inputTodo.Name;
-    todo.IsComplete = inputTodo.IsComplete;
-    todo.Description = inputTodo.Description;
-    todo.Priority = inputTodo.Priority;
-    todo.DueDate = inputTodo.DueDate;
-
-    // nazwa zadania nie mo¿e byæ pusta ani równa null
-    if (string.IsNullOrEmpty(todo.Name))
+    if (isPublic)
     {
-        return Results.BadRequest("Zadanie musi mieæ nazwê.");
+        var todo1 = await db.Todos.FindAsync(id);
+        if (todo1 is null) return Results.NotFound();
+        if (todo1.UserId != null) return Results.Unauthorized();
+        todo1.Name = request.Name;
+        todo1.Description = request.Description;
+        todo1.Priority = request.Priority;
+        todo1.IsComplete = request.IsComplete;
+        todo1.DueDate = request.DueDate;
+        // nazwa zadania nie mo¿e byæ pusta ani równa null
+        if (string.IsNullOrEmpty(todo1.Name))
+        {
+            return Results.BadRequest("Zadanie musi mieæ nazwê.");
+        }
+        // opis zadania nie mo¿e byæ równy null ale mo¿e byæ pusty
+        todo1.Description ??= "";
+        await db.SaveChangesAsync();
+        return Results.Ok();
     }
-    // opis zadania nie mo¿e byæ równy null ale mo¿e byæ pusty
-    todo.Description ??= "";
 
+    if (user is null) return errorResult;
 
-    await db.SaveChangesAsync();
-
-    return Results.Ok();
-});
-
-app.MapPost("/account/edittask/{id}", async (int id, TaskReq request, TodoDb db, IPasswordHasher<User> hasher) =>
-{
-    if (string.IsNullOrEmpty(request.Password))
-    {
-        request.Password = "";
-    }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == request.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
     var todo = await db.Todos.FindAsync(id);
     if (todo is null) return Results.NotFound();
     if (todo.UserId != user.Id) return Results.Unauthorized();
@@ -271,35 +253,22 @@ app.MapPost("/account/edittask/{id}", async (int id, TaskReq request, TodoDb db,
     return Results.Ok();
 });
 
-app.MapPatch("/ticktask/{id}", async (int id, TodoDb db) =>
+app.MapPatch("/ticktask/{id}", async (int id, AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
-    var todo = await db.Todos.FindAsync(id);
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
 
-    if (todo is null) return Results.NotFound();
-    if (todo.User != null) return Results.Unauthorized();
+    if (isPublic)
+    {
+        var todo1 = await db.Todos.FindAsync(id);
+        if (todo1 is null) return Results.NotFound();
+        if (todo1.UserId != null) return Results.Unauthorized();
+        todo1.IsComplete = !todo1.IsComplete;
+        await db.SaveChangesAsync();
+        return Results.Ok();
+    }
 
-    todo.IsComplete = !todo.IsComplete;
-    await db.SaveChangesAsync();
-    return Results.Ok();
-});
+    if (user is null) return errorResult;
 
-app.MapPatch("/account/ticktask/{id}", async (int id, RegisterReq request2, TodoDb db, IPasswordHasher<User> hasher) =>
-{
-    if (string.IsNullOrEmpty(request2.Password))
-    {
-        request2.Password = "";
-    }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == request2.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, request2.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
     var todo = await db.Todos.FindAsync(id);
     if (todo is null) return Results.NotFound();
     if (todo.UserId != user.Id) return Results.Unauthorized();
@@ -308,35 +277,22 @@ app.MapPatch("/account/ticktask/{id}", async (int id, RegisterReq request2, Todo
     return Results.Ok();
 });
 
-app.MapDelete("/deletetask/{id}", async (int id, TodoDb db) =>
+app.MapPost("/deletetask/{id}", async (int id, AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
-    if (await db.Todos.FindAsync(id) is Todo todo)
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
+
+    if (isPublic)
     {
-        db.Todos.Remove(todo);
+        var todo1 = await db.Todos.FindAsync(id);
+        if (todo1 is null) return Results.NotFound();
+        if (todo1.UserId != null) return Results.Unauthorized();
+        db.Todos.Remove(todo1);
         await db.SaveChangesAsync();
         return Results.Ok();
     }
 
-    return Results.NotFound();
-});
+    if (user is null) return errorResult;
 
-app.MapPost("/account/deletetask/{id}", async (int id, RegisterReq request, TodoDb db, IPasswordHasher<User> hasher) =>
-{
-    if (string.IsNullOrEmpty(request.Password))
-    {
-        request.Password = "";
-    }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == request.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
     var todo = await db.Todos.FindAsync(id);
     if (todo is null) return Results.NotFound();
     if (todo.UserId != user.Id) return Results.Unauthorized();
@@ -345,33 +301,26 @@ app.MapPost("/account/deletetask/{id}", async (int id, RegisterReq request, Todo
     return Results.Ok();
 });
 
-app.MapPost("/user/remove", async (RegisterReq request3, TodoDb db, IPasswordHasher<User> hasher) =>
+app.MapPost("/user/remove", async (AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
-    if (string.IsNullOrEmpty(request3.Password))
+    var (isPublic, user, errorResult) = Login(request, db, hasher);
+
+    if (isPublic)
     {
-        request3.Password = "";
+        return Results.BadRequest("Usuniêcie konta wymaga zalogowania siê na nie.");
     }
-    // log in
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Username == request3.Username);
-    if (user == null)
-    {
-        return Results.BadRequest("Nie istnieje konto o takim loginie.");
-    }
-    var verificationResult = hasher.VerifyHashedPassword(user, user.PasswordHash, request3.Password);
-    if (verificationResult == PasswordVerificationResult.Failed)
-    {
-        return Results.BadRequest("Nieprawid³owe has³o.");
-    }
+
+    if (user is null) return errorResult;
 
     db.Users.Remove(user);
     await db.SaveChangesAsync();
     return Results.Ok();
 });
 
-app.MapPost("/user/register", async (RegisterReq request4, TodoDb db, IPasswordHasher<User> hasher) =>
+app.MapPost("/user/register", async (AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
     // Sprawdzenie, czy u¿ytkownik ju¿ istnieje
-    if (await db.Users.AnyAsync(u => u.Username == request4.Username))
+    if (await db.Users.AnyAsync(u => u.Username == request.Username))
     {
         return Results.BadRequest("U¿ytkownik z tym loginem ju¿ istnieje.");
     }
@@ -379,11 +328,11 @@ app.MapPost("/user/register", async (RegisterReq request4, TodoDb db, IPasswordH
     // Tworzenie nowego u¿ytkownika
     var user = new User
     {
-        Username = request4.Username
+        Username = request.Username
     };
 
     // Hashowanie has³a
-    user.PasswordHash = hasher.HashPassword(user, request4.Password);
+    user.PasswordHash = hasher.HashPassword(user, request.Password);
 
     // Dodanie do bazy
     db.Users.Add(user);

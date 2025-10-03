@@ -1,6 +1,6 @@
 ﻿namespace todoapi
 {
-    public class RegisterReq
+    public class AccountReq
     {
         public string Username { get; set; }
         public string Password { get; set; }
