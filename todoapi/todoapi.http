@@ -1,19 +1,58 @@
 ﻿@todoapi_HostAddress = https://localhost:7059
 
-GET {{todoapi_HostAddress}}/listtasks
+POST {{todoapi_HostAddress}}/listtasks
+Content-Type: application/json
+{
 
+}
 ###
 
-GET {{todoapi_HostAddress}}/users
-
-###
-
-POST {{todoapi_HostAddress}}/account/listtasks
+POST {{todoapi_HostAddress}}/listtasks?sorting=oldest
 Content-Type: application/json
 
 {
   "username": "zxczx",
   "password": "dfsfds"
+}
+
+###
+
+POST {{todoapi_HostAddress}}/deletetask/5
+Content-Type: application/json
+{
+    "username": "zxczx",
+    "password": "dfsfds"
+}
+###
+
+POST {{todoapi_HostAddress}}/taskinfo/1
+Content-Type: application/json
+
+{
+    "username": "zxczx",
+    "password": "dfsfds"
+}
+
+###
+
+POST {{todoapi_HostAddress}}/addtask
+Content-Type: application/json
+
+{
+  "username": "zxczx",
+  "password": "dfsfds",
+  "name": "a"
+}
+
+###
+
+POST {{todoapi_HostAddress}}/addchildtask/10
+Content-Type: application/json
+
+{
+  "username": "zxczx",
+  "password": "dfsfds",
+  "name": "c2"
 }
 
 ###
@@ -28,26 +67,22 @@ Content-Type: application/json
 
 ###
 
-POST {{todoapi_HostAddress}}/todoitems
+PATCH {{todoapi_HostAddress}}/edittask/5
 Content-Type: application/json
-
 {
-  "name": "My First Task"
-}
-
-###
-
-POST {{todoapi_HostAddress}}/account/addtask
-Content-Type: application/json
-
-{
-  "username": "zxczx",
-  "password": "dfsfds"
+    "username": "zxczx",
+    "password": "dfsfds",
+    "name": "edited task",
+    "parentTaskId": "6"
 }
 ###
 
-PATCH {{todoapi_HostAddress}}/tick/{{id}}
-
+PATCH {{todoapi_HostAddress}}/ticktask/1
+Content-Type: application/json
+{
+    "username": "zxczx",
+    "password": "dfsfds"
+}
 ###
 
-@id=8
+@id=1

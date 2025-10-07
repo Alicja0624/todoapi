@@ -43,20 +43,103 @@ var db = scope.ServiceProvider.GetRequiredService<TodoDb>();
 
 await db.Database.EnsureCreatedAsync();
 
-app.MapPost("/listtasks", async (AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
+app.MapPost("/listtasks", async(AccountReq request, TodoDb db, IPasswordHasher<User> hasher,
+    string? sorting, bool? onlyNotCompleted, int? minPriority) =>
 {
     var (isPublic, user, errorResult) = Login(request, db, hasher);
 
+    var query = db.Todos.AsQueryable();
+
     if (isPublic)
     {
-        return Results.Ok(await db.Todos.Where(t => t.UserId == null).ToListAsync());
+        query = query.Where(t => t.UserId == null);
+
+        if (onlyNotCompleted == true)
+        {
+            query = query.Where(t => !t.IsComplete);
+        }
+
+        if (minPriority != null)
+        {
+            query = query.Where(t => t.Priority >= minPriority);
+        }
+
+        query = sorting switch
+        {
+            "name" => query.OrderBy(t => t.Name),
+            "priority" => query.OrderByDescending(t => t.Priority),
+            "oldest" => query.OrderBy(t => t.CreatedAt),
+            "newest" => query.OrderByDescending(t => t.CreatedAt),
+            _ => query.OrderBy(t => t.DueDate)
+        };
+
+        List<Todo> todos1 = [];
+
+        foreach (var todo in query)
+        {
+            if (todo.ParentTaskId == null)
+            {
+                todos1.Add(todo);
+            }
+        }
+        query = query.Reverse();
+        
+        foreach (var todo in query)
+        {
+            if (todo.ParentTaskId != null)
+            {
+                todos1.Insert(todos1.FindIndex(t => t.Id == todo.ParentTaskId) + 1, todo);
+            }
+        }
+
+        return Results.Ok(todos1);
     }
 
     if (user is null) return errorResult;
 
-    var User = await db.Users.Include(u => u.Todos).SingleAsync(u => u.Id == user.Id);
+    //var User = await db.Users.Include(u => u.Todos).SingleAsync(u => u.Id == user.Id);
 
-    return Results.Ok(await db.Todos.Where(t => t.User == User).ToListAsync());
+    query = query.Where(t => t.UserId == user.Id);
+
+    if (onlyNotCompleted == true)
+    {
+        query = query.Where(t => !t.IsComplete);
+    }
+
+    if (minPriority != null)
+    {
+        query = query.Where(t => t.Priority >= minPriority);
+    }
+
+    query = sorting switch
+    {
+        "name" => query.OrderBy(t => t.Name),
+        "priority" => query.OrderByDescending(t => t.Priority),
+        "oldest" => query.OrderBy(t => t.CreatedAt),
+        "newest" => query.OrderByDescending(t => t.CreatedAt),
+        _ => query.OrderBy(t => t.DueDate)
+    };
+
+    List<Todo> todos = [];
+
+    foreach (var todo in query)
+    {
+        if (todo.ParentTaskId == null)
+        {
+            todos.Add(todo);
+        }
+    }
+    query = query.Reverse();
+
+    foreach (var todo in query)
+    {
+        if (todo.ParentTaskId != null)
+        {
+            todos.Insert(todos.FindIndex(t => t.Id == todo.ParentTaskId) + 1, todo);
+        }
+    }
+
+    return Results.Ok(todos);
 });
 
 // app.MapGet("/users", async (TodoDb db) =>
@@ -147,6 +230,14 @@ app.MapPost("/addchildtask/{parentId}", async (int parentId, TaskReq request, To
         {
             return Results.BadRequest("Zadanie nadrzêdne nie istnieje.");
         }
+        if (parentTask1.UserId != null)
+        {
+            return Results.Unauthorized();
+        }
+        if (parentTask1.ParentTaskId != null)
+        {
+            return Results.BadRequest("Nie mo¿na dodaæ zadania podrzêdnego do zadania podrzêdnego.");
+        }
         var todo1 = new Todo
         {
             Name = request.Name,
@@ -177,6 +268,14 @@ app.MapPost("/addchildtask/{parentId}", async (int parentId, TaskReq request, To
     if (parentTask == null)
     {
         return Results.BadRequest("Zadanie nadrzêdne nie istnieje.");
+    }
+    if (parentTask.UserId != user.Id)
+    {
+        return Results.Unauthorized();
+    }
+    if (parentTask.ParentTaskId != null)
+    {
+        return Results.BadRequest("Nie mo¿na dodaæ zadania podrzêdnego do zadania podrzêdnego.");
     }
     var todo = new Todo
     {
@@ -319,6 +418,10 @@ app.MapPost("/user/remove", async (AccountReq request, TodoDb db, IPasswordHashe
 
 app.MapPost("/user/register", async (AccountReq request, TodoDb db, IPasswordHasher<User> hasher) =>
 {
+    if (string.IsNullOrEmpty(request.Username))
+    {
+        return Results.BadRequest("Nazwa u¿ytkownika nie mo¿e byæ pusta.");
+    }
     // Sprawdzenie, czy u¿ytkownik ju¿ istnieje
     if (await db.Users.AnyAsync(u => u.Username == request.Username))
     {
