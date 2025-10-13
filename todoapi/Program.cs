@@ -117,24 +117,24 @@ app.MapPost("/listtasks", async(AccountReq request, TodoDb db, IPasswordHasher<U
 			}
 		}
 
-        var query_copy1 = await query.ToListAsync();
+		var query_copy1 = await query.ToListAsync();
 
-        foreach (var todo in query_copy1)
-        {
-            if (todo.ParentTaskId != null)
-            {
-                if (!todos1.Any(t => t.Id == todo.ParentTaskId))
-                {
-                    var parent = await db.Todos.FindAsync(todo.ParentTaskId);
-                    if (parent != null)
-                    {
-                        todos1.Insert(todos1.FindIndex(t => t.Id == todo.Id), parent);
-                    }
-                }
-            }
-        }
+		foreach (var todo in query_copy1)
+		{
+			if (todo.ParentTaskId != null)
+			{
+				if (!todos1.Any(t => t.Id == todo.ParentTaskId))
+				{
+					var parent = await db.Todos.FindAsync(todo.ParentTaskId);
+					if (parent != null)
+					{
+						todos1.Insert(todos1.FindIndex(t => t.Id == todo.Id), parent);
+					}
+				}
+			}
+		}
 
-        return Results.Ok(todos1);
+		return Results.Ok(todos1);
 	}
 
 	if (user is null) return errorResult;
@@ -230,12 +230,12 @@ app.MapPost("/addtask", async (TaskReq request, TodoDb db, IPasswordHasher<User>
 
 	if (isPublic)
 	{
-        if (request.DueDate is not null)
-        {
-            request.DueDate = DateTime.SpecifyKind((DateTime)request.DueDate, DateTimeKind.Utc);
-        }
+		if (request.DueDate is not null)
+		{
+			request.DueDate = DateTime.SpecifyKind((DateTime)request.DueDate, DateTimeKind.Utc);
+		}
 
-        var todo1 = new Todo
+		var todo1 = new Todo
 		{
 			Name = request.Name,
 			Description = request.Description,
@@ -261,9 +261,9 @@ app.MapPost("/addtask", async (TaskReq request, TodoDb db, IPasswordHasher<User>
 	if (request.DueDate is not null)
 	{
 		request.DueDate = DateTime.SpecifyKind((DateTime)request.DueDate, DateTimeKind.Utc);
-    }
+	}
 
-    var todo = new Todo
+	var todo = new Todo
 	{
 		Name = request.Name,
 		Description = request.Description,
@@ -307,6 +307,12 @@ app.MapPost("/addchildtask/{parentId}", async (int parentId, TaskReq request, To
 		{
 			return Results.BadRequest("Nie mo¿na dodaæ zadania podrzêdnego do zadania podrzêdnego");
 		}
+
+		if (request.DueDate is not null)
+		{
+			request.DueDate = DateTime.SpecifyKind((DateTime)request.DueDate, DateTimeKind.Utc);
+		}
+
 		var todo1 = new Todo
 		{
 			Name = request.Name,
@@ -328,7 +334,7 @@ app.MapPost("/addchildtask/{parentId}", async (int parentId, TaskReq request, To
 
 		db.Todos.Add(todo1);
 		await db.SaveChangesAsync();
-		return Results.Created($"/taskinfo/{todo1.Id}", todo1);
+		return Results.Ok(todo1.Id);
 	}
 
 	if (user is null) return errorResult;
@@ -346,6 +352,12 @@ app.MapPost("/addchildtask/{parentId}", async (int parentId, TaskReq request, To
 	{
 		return Results.BadRequest("Nie mo¿na dodaæ zadania podrzêdnego do zadania podrzêdnego");
 	}
+
+	if (request.DueDate is not null)
+	{
+		request.DueDate = DateTime.SpecifyKind((DateTime)request.DueDate, DateTimeKind.Utc);
+	}
+
 	var todo = new Todo
 	{
 		Name = request.Name,
@@ -369,7 +381,7 @@ app.MapPost("/addchildtask/{parentId}", async (int parentId, TaskReq request, To
 
 	db.Todos.Add(todo);
 	await db.SaveChangesAsync();
-	return Results.Created($"/taskinfo/{todo.Id}", todo);
+	return Results.Ok(todo.Id);
 });
 
 app.MapPatch("/edittask/{id}", async (int id, TaskReq request, TodoDb db, IPasswordHasher<User> hasher) =>
@@ -381,6 +393,12 @@ app.MapPatch("/edittask/{id}", async (int id, TaskReq request, TodoDb db, IPassw
 		var todo1 = await db.Todos.FindAsync(id);
 		if (todo1 is null) return Results.NotFound();
 		if (todo1.UserId != null) return Results.Unauthorized();
+
+		if (request.DueDate is not null)
+		{
+			request.DueDate = DateTime.SpecifyKind((DateTime)request.DueDate, DateTimeKind.Utc);
+		}
+
 		todo1.Name = request.Name;
 		todo1.Description = request.Description;
 		todo1.Priority = request.Priority;
@@ -402,6 +420,11 @@ app.MapPatch("/edittask/{id}", async (int id, TaskReq request, TodoDb db, IPassw
 	var todo = await db.Todos.FindAsync(id);
 	if (todo is null) return Results.NotFound();
 	if (todo.UserId != user.Id) return Results.Unauthorized();
+
+	if (request.DueDate is not null)
+	{
+		request.DueDate = DateTime.SpecifyKind((DateTime)request.DueDate, DateTimeKind.Utc);
+	}
 
 	todo.Name = request.Name;
 	todo.Description = request.Description;

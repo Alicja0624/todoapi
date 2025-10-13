@@ -41,16 +41,27 @@
 		{
 			if (editId == t.Id)
 			{
-				<div>
+				<div style="display: flex; align-items: center">
 					@if (t.ParentTaskId is not null)
 					{
 						<span style="display:inline-block; width:20px;"></span>
 					}
-
-					<input type="checkbox" id=@t.Id name=@t.Id value="complete"
-						checked="@t.IsComplete" @onchange="() => TickTask(t.Id)" />
-
-					<input @bind="name" placeholder="Nazwa zadania" />
+					<input type="checkbox" id=@t.Id name=@t.Id value="complete" @bind="isComplete" />
+					<div style="display: flex; flex-direction: column;">
+						<input @bind="name" placeholder="Nazwa zadania" />
+						<textarea @bind="description" type="" placeholder="Opis (opcjonalnie)" />
+					</div>
+					<div style="display: flex; flex-direction: column;">
+						<div>
+							<label for="dueDate">Termin: </label>
+							<input type="datetime-local" step="1" @bind="dueDate" />
+						</div>
+						<div>
+							<label for="priority">Priorytet: </label>
+							<input type="number" id="priority" name="priority" @bind="priority" />
+						</div>
+					</div>
+					<button @onclick="SubmitEdit">&#x1F5F8;</button>
 				</div>
 			}
 			else
@@ -67,11 +78,23 @@
 
 					<label for=@t.Id>@t.Name&nbsp;&nbsp;&nbsp;&nbsp;</label>
 
+					@if (t.ParentTaskId is null)
+					{
+						<a style="text-decoration:none; color:@colour; cursor:pointer"
+							@onclick="() => AddChild(t.Id)">+</a>
+					}
 					<a style="text-decoration:none; color:@colour; cursor:pointer"
 						@onclick="() => EditTask(t.Id)">&#x1F589;</a>
 					<a style="text-decoration:none; color:@colour; cursor:pointer"
-						@onclick="() => DeleteTask(t.Id)">&#x1F5D1;</a>
+					   @onclick="() => DeleteTask(t.Id)">&#x1F5D1;</a>
 
+					@if (!string.IsNullOrEmpty(t.Description))
+					{
+						<br />
+						<label for=@t.Id style="font-style: italic; color: grey; font-size: small;">
+							@t.Description
+						</label>
+					}
 					@if (t.DueDate is not null)
 					{
 						<br />
@@ -93,8 +116,15 @@
 			<input @bind="name" placeholder="Nazwa zadania" />
 			<textarea @bind="description" type="" placeholder="Opis (opcjonalnie)" />
 		</div>
-		<div style="display: flex">
-			<input type="datetime-local" step="1" @bind="dueDate" />
+		<div style="display: flex; flex-direction: column;">
+			<div>
+				<label for="dueDate">Termin: </label>
+				<input type="datetime-local" step="1" @bind="dueDate" />
+			</div>
+			<div>
+				<label for="priority">Priorytet: </label>
+				<input type="number" id="priority" name="priority" @bind="priority" />
+			</div>
 		</div>
 	</div>
 }
@@ -112,8 +142,9 @@ else
 
 @code {
 	private string username, password, title, sorting, priorityString, name, colour, description;
-	private bool onlyNotCompleted, addingMode;
+	private bool onlyNotCompleted, addingMode, isComplete;
 	private int? minPriority, hoverId, editId;
+	private int priority = 0;
 	private DateTime? dueDate;
 	private List<Todo>? tasks;
 
@@ -160,7 +191,7 @@ else
 
 	private async void AddTask()
 	{
-		var req = new { name, description, dueDate, username, password };
+		var req = new { name, description, dueDate, priority, username, password };
 
 		if (string.IsNullOrEmpty(name))
 		{
@@ -177,6 +208,8 @@ else
 
 			name = "";
 			description = "";
+			dueDate = null;
+			priority = 0;
 		}
 		else
 		{
@@ -211,21 +244,52 @@ else
 		}
 	}
 
-	private async void EditTask(int id)
+	private void EditTask(int id)
 	{
 		addingMode = false;
 		editId = id;
 
-		var req = new { username, password };
+		name = tasks?.FirstOrDefault(t => t.Id == id)?.Name;
+		description = tasks?.FirstOrDefault(t => t.Id == id)?.Description;
+		dueDate = tasks?.FirstOrDefault(t => t.Id == id)?.DueDate;
+		priority = tasks?.FirstOrDefault(t => t.Id == id)?.Priority ?? 0;
+		isComplete = tasks?.FirstOrDefault(t => t.Id == id)?.IsComplete ?? false;
+	}
 
-		var response = await Http.PatchAsJsonAsync($"/edittask/{id}", req);
+	private async void SubmitEdit()
+	{
+		var req = new { name, description, dueDate, priority, isComplete, username, password };
+
+		var response = await Http.PatchAsJsonAsync($"/edittask/{editId}", req);
 		if (response.IsSuccessStatusCode)
 		{
+			editId = null;
 			await LoadTasks();
 		}
 		else
 		{
 			title = response.StatusCode.ToString();
+		}
+	}
+
+	private async void AddChild(int parentId)
+	{
+		var req = new { name, username, password };
+
+		name = " ";
+
+		var response = await Http.PostAsJsonAsync($"/addchildtask/{parentId}", req);
+
+		if (response.IsSuccessStatusCode)
+		{
+			LoadTasks();
+			int newTaskId = await response.Content.ReadFromJsonAsync<int>();
+			EditTask(newTaskId);
+			StateHasChanged();
+		}
+		else
+		{
+			//title = response.StatusCode.ToString();
 		}
 	}
 
