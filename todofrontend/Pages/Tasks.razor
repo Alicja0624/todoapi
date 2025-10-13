@@ -1,0 +1,245 @@
+﻿@page "/"
+@inject HttpClient Http
+
+<EditForm Model="@this" OnSubmit="LoadTasks">
+	<input @bind="username" placeholder="Login" /><br />
+	<input @bind="password" placeholder="Hasło" type="password" /><br />
+	<button type="submit">Zaloguj się</button>
+	<br /><br />
+</EditForm>
+
+<h3>@title</h3>
+
+<label for="sort">Sortowanie:</label>
+<select name="sort" id="sort" @bind=sorting @bind:after="LoadTasks">
+	<option value="name">alfabetyczne</option>
+	<option value="priority">priorytet</option>
+	<option value="oldest">od najstarszych</option>
+	<option value="newest">od najnowszych</option>
+	<option value="due" selected>termin</option>
+</select>
+<br />
+
+<input type="checkbox" id="onlyNotCompleted" name="onlyNotCompleted" @bind=onlyNotCompleted @bind:after="LoadTasks" />
+<label for="onlyNotCompleted">Pokaż tylko nieukończone</label>
+<br />
+
+<label for="minPriority">Minimalny priorytet:</label>
+<input type="number" id="minPriority" name="minPriority" @bind=minPriority @bind:after="LoadTasks" />
+<br />
+
+@if (tasks is not null)
+{
+	if (tasks.Count == 0)
+	{
+		<br /><p>Brak zadań do wyświetlenia</p>
+	}
+	else
+	{
+		<br /><p>Zadania:</p>
+		@foreach (var t in tasks)
+		{
+			if (editId == t.Id)
+			{
+				<div>
+					@if (t.ParentTaskId is not null)
+					{
+						<span style="display:inline-block; width:20px;"></span>
+					}
+
+					<input type="checkbox" id=@t.Id name=@t.Id value="complete"
+						checked="@t.IsComplete" @onchange="() => TickTask(t.Id)" />
+
+					<input @bind="name" placeholder="Nazwa zadania" />
+				</div>
+			}
+			else
+			{
+				colour = hoverId == t.Id ? "black" : "white";
+				<div @onmouseover="() => hoverId = t.Id" @onmouseout="() => hoverId = null">
+					@if (t.ParentTaskId is not null)
+					{
+						<span style="display:inline-block; width:20px;"></span>
+					}
+
+					<input type="checkbox" id=@t.Id name=@t.Id value="complete"
+						checked="@t.IsComplete" @onchange="() => TickTask(t.Id)" />
+
+					<label for=@t.Id>@t.Name&nbsp;&nbsp;&nbsp;&nbsp;</label>
+
+					<a style="text-decoration:none; color:@colour; cursor:pointer"
+						@onclick="() => EditTask(t.Id)">&#x1F589;</a>
+					<a style="text-decoration:none; color:@colour; cursor:pointer"
+						@onclick="() => DeleteTask(t.Id)">&#x1F5D1;</a>
+
+					@if (t.DueDate is not null)
+					{
+						<br />
+						<label for=@t.Id style="font-style: italic; color: grey; font-size: x-small;">
+							Na @t.DueDate
+						</label>
+					}
+				</div>
+			}
+		}
+	}
+}
+
+@if (addingMode)
+{
+	<div style="display: flex; align-items: center">
+		<button @onclick="AddTask">+</button>
+		<div style="display: flex; flex-direction: column;">
+			<input @bind="name" placeholder="Nazwa zadania" />
+			<textarea @bind="description" type="" placeholder="Opis (opcjonalnie)" />
+		</div>
+		<div style="display: flex">
+			<input type="datetime-local" step="1" @bind="dueDate" />
+		</div>
+	</div>
+}
+else
+{
+	<div style="display: flex; align-items: center">
+		<button @onclick="AddingModeOn">+</button>
+		<!--Ukryty div dla zachowania układu-->
+		<div style="display: flex; flex-direction: column; visibility:hidden;">
+			<input @bind="name" placeholder="Nazwa zadania" disabled />
+			<textarea @bind="description" type="" placeholder="Opis (opcjonalnie)" disabled />
+		</div>
+	</div>
+}
+
+@code {
+	private string username, password, title, sorting, priorityString, name, colour, description;
+	private bool onlyNotCompleted, addingMode;
+	private int? minPriority, hoverId, editId;
+	private DateTime? dueDate;
+	private List<Todo>? tasks;
+
+	protected override async Task OnInitializedAsync()
+	{
+		await LoadTasks();
+	}
+
+	private async Task LoadTasks()
+	{
+		tasks = new List<Todo>(); // Czyści poprzednie zadania
+
+		if (minPriority is not null)
+			priorityString = $"&minPriority={minPriority}";
+		else
+			priorityString = "";
+
+		var req = new { username, password };
+
+		var response = await Http.PostAsJsonAsync($"/listtasks?sorting={sorting}&onlyNotCompleted={onlyNotCompleted}{priorityString}", req);
+		if (response.IsSuccessStatusCode)
+		{
+			if (string.IsNullOrEmpty(username))
+				title = "Lista zadań publicznych";
+			else
+				title = $"Lista zadań konta {username}";
+			tasks = await response.Content.ReadFromJsonAsync<List<Todo>>();
+		}
+		else
+		{
+			title = await response.Content.ReadAsStringAsync();
+			title = title.Replace("\"", "");
+			tasks = null;
+		}
+
+		StateHasChanged();
+	}
+
+	private void AddingModeOn()
+	{
+		editId = null;
+		addingMode = true;
+	}
+
+	private async void AddTask()
+	{
+		var req = new { name, description, dueDate, username, password };
+
+		if (string.IsNullOrEmpty(name))
+		{
+			addingMode = false;
+			return;
+		}
+
+		var response = await Http.PostAsJsonAsync($"/addtask", req);
+
+		if (response.IsSuccessStatusCode)
+		{
+			addingMode = false;
+			await LoadTasks();
+
+			name = "";
+			description = "";
+		}
+		else
+		{
+			title = response.StatusCode.ToString();
+		}
+	}
+
+	private async void TickTask(int id)
+	{
+		var req = new { username, password };
+
+		var response = await Http.PatchAsJsonAsync($"/ticktask/{id}", req);
+		if (!response.IsSuccessStatusCode)
+		{
+			title = response.StatusCode.ToString();
+			tasks = null;
+		}
+	}
+
+	private async void DeleteTask(int id)
+	{
+		var req = new { username, password };
+
+		var response = await Http.PostAsJsonAsync($"/deletetask/{id}", req);
+		if (response.IsSuccessStatusCode)
+		{
+			await LoadTasks();
+		}
+		else
+		{
+			title = response.StatusCode.ToString();
+		}
+	}
+
+	private async void EditTask(int id)
+	{
+		addingMode = false;
+		editId = id;
+
+		var req = new { username, password };
+
+		var response = await Http.PatchAsJsonAsync($"/edittask/{id}", req);
+		if (response.IsSuccessStatusCode)
+		{
+			await LoadTasks();
+		}
+		else
+		{
+			title = response.StatusCode.ToString();
+		}
+	}
+
+	public class Todo
+	{
+		public int Id { get; set; }
+		public string Name { get; set; }
+		public string Description { get; set; } = "";
+		public int Priority { get; set; } = 0;
+		public bool IsComplete { get; set; }
+		public int? UserId { get; set; }
+		public int? ParentTaskId { get; set; }
+		public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
+		public DateTime? DueDate { get; set; }
+
+	}
+}
