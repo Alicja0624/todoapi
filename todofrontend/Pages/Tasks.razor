@@ -1,14 +1,55 @@
 ﻿@page "/"
 @inject HttpClient Http
 
-<EditForm Model="@this" OnSubmit="LoadTasks">
-	<input @bind="username" placeholder="Login" /><br />
-	<input @bind="password" placeholder="Hasło" type="password" /><br />
-	<button type="submit">Zaloguj się</button>
-	<br /><br />
-</EditForm>
+@if (accountState == 2)
+{
+	<EditForm Model="@this" OnSubmit="Register">
+		<label for="register">Rejestracja</label><br />
+		<input @bind="username" placeholder="Login" /><br />
+		<input @bind="password" placeholder="Hasło" type="password" /><br />
+		<input @bind="password_copy" placeholder="Powtórz hasło" type="password" /><br />
+		<button type="submit">Utwórz konto</button>
+		<button @onclick="() => ChangeAccountState(0)">Anuluj</button>
+	</EditForm>
+}
+else if (accountState == 1)
+{
+	<EditForm Model="@this" OnSubmit="LoadTasks">
+		<label for="login">Logowanie</label><br />
+		<input @bind="username" placeholder="Login" /><br />
+		<input @bind="password" placeholder="Hasło" type="password" /><br />
+		<button type="submit">Zaloguj się</button>
+		<button @onclick="() => ChangeAccountState(0)">Anuluj</button>
+	</EditForm>
+}
+else if (accountState == 3)
+{
+	<EditForm Model="@this" OnSubmit="() => ChangeAccountState(4)">
+		<label for="delete">Usuwanie konta</label><br />
+		<input @bind="username" placeholder="Login" /><br />
+		<input @bind="password" placeholder="Hasło" type="password" /><br />
+		<button type="submit">Usuń konto</button>
+		<button @onclick="() => ChangeAccountState(0)">Anuluj</button>
+	</EditForm>
+}
+else if (accountState == 4)
+{
+	<EditForm Model="@this" OnSubmit="DeleteAccount">
+		<label for="delete">Czy na pewno chcesz usunąć konto?</label><br />
+		<input @bind="username" placeholder="Login" /><br />
+		<input @bind="password" placeholder="Hasło" type="password" /><br />
+		<button type="submit">Tak</button>
+		<button @onclick="() => ChangeAccountState(0)">Anuluj</button>
+	</EditForm>
+}
+else
+{
+	<button @onclick="() => ChangeAccountState(1)">Logowanie</button><br />
+	<button @onclick="() => ChangeAccountState(2)">Rejestrowanie</button><br />
+	<button @onclick="() => ChangeAccountState(3)">Usuwanie konta</button>
+}
 
-<h3>@title</h3>
+<br /><br /><h3>@title</h3>
 
 <label for="sort">Sortowanie:</label>
 <select name="sort" id="sort" @bind=sorting @bind:after="LoadTasks">
@@ -22,6 +63,10 @@
 
 <input type="checkbox" id="onlyNotCompleted" name="onlyNotCompleted" @bind=onlyNotCompleted @bind:after="LoadTasks" />
 <label for="onlyNotCompleted">Pokaż tylko nieukończone</label>
+<br />
+
+<input type="checkbox" id="showPriority" name="showPriority" @bind=showPriority @bind:after="StateHasChanged" />
+<label for="showPriority">Pokaż priorytet zadań</label>
 <br />
 
 <label for="minPriority">Minimalny priorytet:</label>
@@ -76,12 +121,20 @@
 					<input type="checkbox" id=@t.Id name=@t.Id value="complete"
 						checked="@t.IsComplete" @onchange="() => TickTask(t.Id)" />
 
-					<label for=@t.Id>@t.Name&nbsp;&nbsp;&nbsp;&nbsp;</label>
+					<label for=@t.Id>@t.Name&nbsp;</label>
+					@if (showPriority)
+					{
+						<label for=@t.Priority style="color: grey; font-size: small">(@t.Priority)&nbsp;&nbsp;&nbsp;&nbsp;</label>
+					}
+					else
+					{
+						<label>&nbsp;&nbsp;&nbsp;</label>
+					}
 
 					@if (t.ParentTaskId is null)
 					{
 						<a style="text-decoration:none; color:@colour; cursor:pointer"
-							@onclick="() => AddChild(t.Id)">+</a>
+							@onclick="() => AddChild(t.Id)">&#xFF0B;</a>
 					}
 					<a style="text-decoration:none; color:@colour; cursor:pointer"
 						@onclick="() => EditTask(t.Id)">&#x1F589;</a>
@@ -91,6 +144,10 @@
 					@if (!string.IsNullOrEmpty(t.Description))
 					{
 						<br />
+						@if (t.ParentTaskId is not null)
+						{
+							<span style="display:inline-block; width:20px;"></span>
+						}
 						<label for=@t.Id style="font-style: italic; color: grey; font-size: small;">
 							@t.Description
 						</label>
@@ -98,6 +155,10 @@
 					@if (t.DueDate is not null)
 					{
 						<br />
+						@if (t.ParentTaskId is not null)
+						{
+							<span style="display:inline-block; width:20px;"></span>
+						}
 						<label for=@t.Id style="font-style: italic; color: grey; font-size: x-small;">
 							Na @t.DueDate
 						</label>
@@ -141,10 +202,11 @@ else
 }
 
 @code {
-	private string username, password, title, sorting, priorityString, name, colour, description;
-	private bool onlyNotCompleted, addingMode, isComplete;
+	private string username, password, title, sorting, priorityString, name, colour, description, password_copy;
+	private bool onlyNotCompleted, addingMode, isComplete, showPriority;
 	private int? minPriority, hoverId, editId;
-	private int priority = 0;
+	private int priority = 0, accountState = 0;
+	// account_state: 0 - nic; 1 - logowanie; 2 - rejestrowanie; 3 - usuwanie konta; 4 - czy na pewno?
 	private DateTime? dueDate;
 	private List<Todo>? tasks;
 
@@ -167,6 +229,7 @@ else
 		var response = await Http.PostAsJsonAsync($"/listtasks?sorting={sorting}&onlyNotCompleted={onlyNotCompleted}{priorityString}", req);
 		if (response.IsSuccessStatusCode)
 		{
+			accountState = 0;
 			if (string.IsNullOrEmpty(username))
 				title = "Lista zadań publicznych";
 			else
@@ -285,12 +348,58 @@ else
 			LoadTasks();
 			int newTaskId = await response.Content.ReadFromJsonAsync<int>();
 			EditTask(newTaskId);
-			StateHasChanged();
 		}
 		else
 		{
-			//title = response.StatusCode.ToString();
+			title = response.StatusCode.ToString();
 		}
+	}
+
+	private async void Register()
+	{
+		var req = new { username, password };
+
+		if (password == password_copy)
+		{
+			var response = await Http.PostAsJsonAsync($"/user/register", req);
+
+			if (response.IsSuccessStatusCode)
+			{
+				accountState = 0;
+				LoadTasks();
+			}
+			else
+			{
+				title = response.StatusCode.ToString();
+			}
+		}
+		else
+		{
+			title = "Hasła nie są identyczne";
+		}
+	}
+
+	private async void DeleteAccount()
+	{
+		var req = new { username, password };
+		var response = await Http.PostAsJsonAsync($"/user/remove", req);
+		if (response.IsSuccessStatusCode)
+		{
+			accountState = 0;
+			username = "";
+			password = "";
+			LoadTasks();
+		}
+		else
+		{
+			title = response.StatusCode.ToString();
+		}
+	}
+
+	private async void ChangeAccountState(int i)
+	{
+		accountState = i;
+		StateHasChanged();
 	}
 
 	public class Todo

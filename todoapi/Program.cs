@@ -477,7 +477,10 @@ app.MapPost("/deletetask/{id}", async (int id, AccountReq request, TodoDb db, IP
 		var todo1 = await db.Todos.FindAsync(id);
 		if (todo1 is null) return Results.NotFound();
 		if (todo1.UserId != null) return Results.Unauthorized();
-		db.Todos.Remove(todo1);
+        // usuwanie zadañ podrzêdnych
+		var childTasks1 = db.Todos.Where(t => t.ParentTaskId == todo1.Id);
+		db.Todos.RemoveRange(childTasks1);
+        db.Todos.Remove(todo1);
 		await db.SaveChangesAsync();
 		return Results.Ok();
 	}
@@ -487,8 +490,22 @@ app.MapPost("/deletetask/{id}", async (int id, AccountReq request, TodoDb db, IP
 	var todo = await db.Todos.FindAsync(id);
 	if (todo is null) return Results.NotFound();
 	if (todo.UserId != user.Id) return Results.Unauthorized();
-	db.Todos.Remove(todo);
+    // usuwanie zadañ podrzêdnych
+	var childTasks = db.Todos.Where(t => t.ParentTaskId == todo.Id);
+	db.Todos.RemoveRange(childTasks);
+    db.Todos.Remove(todo);
 	await db.SaveChangesAsync();
+	return Results.Ok();
+});
+
+app.MapDelete("/user/adminremove/{login}", async (string login, TodoDb db) =>
+{
+    // remove user with given login
+	var user = await db.Users.Include(u => u.Todos).SingleOrDefaultAsync(u => u.Username == login);
+    if (user is null) return Results.NotFound();
+	db.Users.Remove(user);
+
+    await db.SaveChangesAsync();
 	return Results.Ok();
 });
 

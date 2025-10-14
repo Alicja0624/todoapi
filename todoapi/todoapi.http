@@ -83,4 +83,6 @@ Content-Type: application/json
 }
 ###
 
-@id=1
+DELETE {{todoapi_HostAddress}}/user/adminremove/1234
+
+###
